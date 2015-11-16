@@ -34,6 +34,7 @@
 #if !(F_CPU == 16000000 || F_CPU == 48000000)
 #warning "Mozzi has been tested with a cpu clock speed of 16MHz on Arduino and 48MHz on Teensy 3!  Results may vary with other speeds."
 #endif
+#include <SPI.h>
 
 // this seems to get included before mozzi_analog.cpp
 #if defined(__MK20DX128__) || defined(__MK20DX256__) // teensy 3, 3.1
@@ -323,13 +324,27 @@ ISR(TIMER1_OVF_vect, ISR_BLOCK)
 		startSecondAudioADC();
 #endif
 
+#define CLR(x,y) (x&=(~(1<<y)))
+#define SET(x,y) (x|=(1<<y))
+
 //if (!output_buffer.isEmpty()) {
 /*
 output =  output_buffer.read();
 AUDIO_CHANNEL_1_OUTPUT_REGISTER = output;
 AUDIO_CHANNEL_2_OUTPUT_REGISTER = 0;
 */
-	AUDIO_CHANNEL_1_OUTPUT_REGISTER = output_buffer.read();
+	//AUDIO_CHANNEL_1_OUTPUT_REGISTER = output_buffer.read();
+	unsigned int dac_out = output_buffer.read();
+        unsigned int command = 0b0111000000000000 | dac_out;
+        SPI.beginTransaction(SPISettings(16000000, MSBFIRST, SPI_MODE0));
+        CLR(PORTD, 1);
+        SPI.transfer(command >> 8);
+        SPI.transfer(command & 0xff);
+        SET(PORTD, 1);
+        SPI.endTransaction();
+        digitalWrite(0, LOW);
+        digitalWrite(0, HIGH);
+
 //}
 
 	// flip signal polarity - instead of signal going to 0 (both pins 0), it goes to pseudo-negative of its current value.
@@ -356,11 +371,11 @@ static void startAudioHiFi()
 {
 	backupPreMozziTimer1();
 	// pwm on timer 1
-	pinMode(AUDIO_CHANNEL_1_highByte_PIN, OUTPUT);	// set pin to output for audio, use 3.9k resistor
-	pinMode(AUDIO_CHANNEL_1_lowByte_PIN, OUTPUT);	// set pin to output for audio, use 499k resistor
+	//pinMode(AUDIO_CHANNEL_1_highByte_PIN, OUTPUT);	// set pin to output for audio, use 3.9k resistor
+	//pinMode(AUDIO_CHANNEL_1_lowByte_PIN, OUTPUT);	// set pin to output for audio, use 499k resistor
 	Timer1.initializeCPUCycles(16000000UL/125000, FAST);		// set period for 125000 Hz fast pwm carrier frequency = 14 bits
-	Timer1.pwm(AUDIO_CHANNEL_1_highByte_PIN, 0);		// pwm pin, 0% duty cycle, ie. 0 signal
-	Timer1.pwm(AUDIO_CHANNEL_1_lowByte_PIN, 0);		// pwm pin, 0% duty cycle, ie. 0 signal
+	//Timer1.pwm(AUDIO_CHANNEL_1_highByte_PIN, 0);		// pwm pin, 0% duty cycle, ie. 0 signal
+	//Timer1.pwm(AUDIO_CHANNEL_1_lowByte_PIN, 0);		// pwm pin, 0% duty cycle, ie. 0 signal
 	backupMozziTimer1();
 	// audio output interrupt on timer 2, sets the pwm levels of timer 1
 	setupTimer2();
@@ -518,6 +533,13 @@ static void startControl(unsigned int control_rate_hz)
 
 void startMozzi(int control_rate_hz)
 {
+  pinMode(0, OUTPUT);
+  digitalWrite(0, HIGH);
+  pinMode(1, OUTPUT);
+  digitalWrite(1, HIGH);
+  SPI.begin();
+  SPI.setDataMode(SPI_MODE0);
+  SPI.usingInterrupt(255);
 	setupMozziADC(); // you can use setupFastAnalogRead() with FASTER or FASTEST in setup() if desired (not for Teensy 3.1)
 	// delay(200); // so AutoRange doesn't read 0 to start with
 	startControl(control_rate_hz);
